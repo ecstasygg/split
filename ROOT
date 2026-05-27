@@ -3,3 +3,4 @@ session Split = HOL +
   theories
     Model
     Isolation
+    Execution
