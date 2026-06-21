@@ -5,3 +5,4 @@ session Split = HOL +
     Isolation
     Execution
     Protocol
+    Snapshot
