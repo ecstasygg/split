@@ -1,0 +1,76 @@
+<system>
+  <memory_region name="frame0" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame1" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame2" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame3" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame4" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame5" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame6" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame7" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame8" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame9" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame10" size="0x1000" page_size="0x1000" />
+  <memory_region name="frame11" size="0x1000" page_size="0x1000" />
+  <memory_region name="reserve0" size="0x1000" page_size="0x1000" />
+  <memory_region name="reserve1" size="0x1000" page_size="0x1000" />
+  <protection_domain name="pager" priority="254">
+    <program_image path="pager.elf" />
+    <map mr="frame0" vaddr="0x60000000" perms="rw" />
+    <map mr="frame1" vaddr="0x60001000" perms="rw" />
+    <map mr="frame2" vaddr="0x60002000" perms="rw" />
+    <map mr="frame3" vaddr="0x60003000" perms="rw" />
+    <map mr="frame4" vaddr="0x60004000" perms="rw" />
+    <map mr="frame5" vaddr="0x60005000" perms="rw" />
+    <map mr="frame6" vaddr="0x60006000" perms="rw" />
+    <map mr="frame7" vaddr="0x60007000" perms="rw" />
+    <map mr="frame8" vaddr="0x60008000" perms="rw" />
+    <map mr="frame9" vaddr="0x60009000" perms="rw" />
+    <map mr="frame10" vaddr="0x6000a000" perms="rw" />
+    <map mr="frame11" vaddr="0x6000b000" perms="rw" />
+    <cspace>
+      <cap_vspace slot="1" pd="alpha" />
+      <cap_frame slot="10" mr="frame0" />
+      <cap_frame slot="11" mr="frame1" />
+      <cap_frame slot="12" mr="frame2" />
+      <cap_frame slot="13" mr="frame3" />
+      <cap_vspace slot="2" pd="beta" />
+      <cap_frame slot="14" mr="frame0" />
+      <cap_frame slot="15" mr="frame1" />
+      <cap_frame slot="16" mr="frame2" />
+      <cap_frame slot="17" mr="frame3" />
+      <cap_frame slot="30" mr="frame4" />
+      <cap_frame slot="31" mr="frame5" />
+      <cap_frame slot="32" mr="frame6" />
+      <cap_frame slot="33" mr="frame7" />
+      <cap_frame slot="34" mr="frame8" />
+      <cap_frame slot="35" mr="frame9" />
+      <cap_frame slot="36" mr="frame10" />
+      <cap_frame slot="37" mr="frame11" />
+    </cspace>
+    <protection_domain name="alpha" priority="100" id="0">
+      <program_image path="alpha.elf" />
+      <map mr="reserve0" vaddr="0x40010000" perms="r" />
+      <map mr="task0" vaddr="0x50000000" perms="r" />
+    </protection_domain>
+    <protection_domain name="beta" priority="99" id="1">
+      <program_image path="beta.elf" />
+      <map mr="reserve1" vaddr="0x40010000" perms="r" />
+      <map mr="task1" vaddr="0x50000000" perms="r" />
+    </protection_domain>
+    <map mr="uart" vaddr="0x70000000" perms="rw" cached="false" />
+    <irq irq="33" id="5" trigger="level" />
+    <map mr="task0" vaddr="0x50000000" perms="rw" />
+    <map mr="task1" vaddr="0x50001000" perms="rw" />
+  </protection_domain>
+  <channel>
+    <end pd="pager" id="0" />
+    <end pd="alpha" id="0" pp="true" />
+  </channel>
+  <channel>
+    <end pd="pager" id="1" />
+    <end pd="beta" id="0" pp="true" />
+  </channel>
+  <memory_region name="uart" size="0x1000" page_size="0x1000" phys_addr="0x09000000" />
+  <memory_region name="task0" size="0x1000" page_size="0x1000" />
+  <memory_region name="task1" size="0x1000" page_size="0x1000" />
+</system>

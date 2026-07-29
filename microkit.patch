@@ -1,0 +1,73 @@
+--- a/tool/microkit/src/sdf/cspace.rs
++++ b/tool/microkit/src/sdf/cspace.rs
+@@ -17,6 +17,7 @@
+     Tcb,
+     Sc,
+     VSpace,
++    Frame,
+ }
+ 
+ #[derive(Debug, PartialEq, Eq)]
+@@ -45,9 +46,9 @@
+         // At the moment the four cap maps we support all have the 'pd' element,
+         // so we can include it here. When that stops being the case we will
+         // have to rework this a bit.
+-        check_attributes(xml_sdf, node, &["slot", "pd"])?;
+-
+-        let pd = Rc::from(checked_lookup(xml_sdf, node, "pd")?);
++        let source = if cap_type == CapMapType::Frame { "mr" } else { "pd" };
++        check_attributes(xml_sdf, node, &["slot", source])?;
++        let pd = Rc::from(checked_lookup(xml_sdf, node, source)?);
+ 
+         let slot: u64 = sdf_parse_required_attribute(xml_sdf, node, "slot")?;
+ 
+@@ -91,6 +92,7 @@
+                 "cap_tcb" => CapMap::from_xml(CapMapType::Tcb, xml_sdf, &*child)?,
+                 "cap_sc" => CapMap::from_xml(CapMapType::Sc, xml_sdf, &*child)?,
+                 "cap_vspace" => CapMap::from_xml(CapMapType::VSpace, xml_sdf, &*child)?,
++                "cap_frame" => CapMap::from_xml(CapMapType::Frame, xml_sdf, &*child)?,
+                 child_name => {
+                     let location = loc_string(xml_sdf, child.range().start);
+                     if let Some(type_name) = child_name.strip_prefix("cap_") {
+--- a/tool/microkit/src/sdf.rs
++++ b/tool/microkit/src/sdf.rs
+@@ -310,7 +310,11 @@
+ 
+     for pd in pds.values() {
+         for cap_map in pd.cap_maps.iter() {
+-            if !pds.contains_key(&cap_map.pd) {
++            if cap_map.cap_type == CapMapType::Frame {
++                if !mrs.iter().any(|mr| mr.name.as_str() == cap_map.pd.as_ref()) {
++                    return Err(format!("Unknown frame region {}", cap_map.pd));
++                }
++            } else if !pds.contains_key(&cap_map.pd) {
+                 return Err(format!(
+                     "Error: unknown PD name '{}': {}",
+                     cap_map.pd,
+--- a/tool/microkit/src/capdl/builder.rs
++++ b/tool/microkit/src/capdl/builder.rs
+@@ -1332,12 +1332,23 @@
+         for cap_map in pd.cap_maps.iter() {
+             // TODO: Once we add more CapMap options, they might not all have
+             // the pd_name. But for now, they do.
+-            let pd_src_shadow_cspace = &pd_shadow_cspaces[&cap_map.pd];
++            let pd_src_shadow_cspace = if cap_map.cap_type == CapMapType::Frame {
++                &pd_shadow_cspaces[&pd.name]
++            } else {
++                &pd_shadow_cspaces[&cap_map.pd]
++            };
+ 
+             let cap_map_obj = match cap_map.cap_type {
+                 CapMapType::Tcb => capdl_util_make_tcb_cap(pd_src_shadow_cspace.tcb),
+                 CapMapType::Sc => capdl_util_make_sc_cap(pd_src_shadow_cspace.sched_context),
+                 CapMapType::VSpace => capdl_util_make_page_table_cap(pd_src_shadow_cspace.vspace),
++                CapMapType::Frame => {
++                    let frames = &mr_name_to_frames[cap_map.pd.as_ref()];
++                    if frames.len() != 1 {
++                        return Err(format!("Frame region {} must contain one page", cap_map.pd));
++                    }
++                    capdl_util_make_frame_cap(frames[0], true, true, false, true)
++                },
+             };
+ 
+             // Map this into the destination pd's cspace and the specified slot.
