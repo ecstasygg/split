@@ -6,7 +6,7 @@ LD := aarch64-linux-gnu-ld
 CFLAGS := -std=gnu11 -O2 -g -Wall -Wextra -Werror -Wno-unused-function -ffreestanding -nostdlib -mstrict-align -I$(BOARD)/include
 QEMU := qemu-system-aarch64 -machine virt,virtualization=on -cpu cortex-a53 -m 2G -nographic -monitor none -serial stdio
 
-.PHONY: all proof clean
+.PHONY: all proof work demo run clean
 all: build/loader.img
 
 build:
@@ -41,6 +41,16 @@ build/split.ml: Export.thy Reuse.thy Snapshot.thy Execution.thy Protocol.thy Iso
 	isabelle build -D .
 	isabelle export -n -d . -O build/generated -x 'Split.Export:code/**' Split
 	cp build/generated/Split.Export/code/split.ocaml $@
+
+build/check: build/split.ml check.ml Makefile
+	ocamlopt -w -a -I build -c build/split.ml
+	ocamlopt -w +a-4-42-70 -I +unix -I build -c -o build/check.cmx check.ml
+	ocamlopt -I +unix -I build unix.cmxa build/split.cmx build/check.cmx -o $@
+
+work: all build/check
+	build/check work document
+
+demo run: work
 
 clean:
 	rm -rf build
