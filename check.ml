@@ -18,6 +18,29 @@ let require ok message = if not ok then failwith message
 let read s k offset = integer (S.read_byte s (nat k) (nat offset))
 let step capacity s a = S.checked (nat 8) (nat 4096) (nat capacity) s a
 
+let selftest () =
+  let state = ref S.boot in
+  let reference = Array.init 8 (fun k -> Array.init 4096 (fun b -> ((k mod 4) * 17 + b) mod 256)) in
+  let random = Random.State.make [|2026; 4; 8|] in
+  for i = 0 to 1023 do
+    let k = Random.State.int random 8 in
+    let offset = if i mod 127 = 0 then 4095 else Random.State.int random 128 in
+    let byte = Random.State.int random 256 in
+    let action = S.Write (nat k, nat offset, nat byte) in
+    state := Option.get (step 12 !state action);
+    reference.(k).(offset) <- byte;
+    for j = 0 to 7 do
+      require (read !state j offset = reference.(j).(offset)) "private memory refinement"
+    done
+  done;
+  require (integer (S.frontier !state) = 12) "one copy per written page";
+  List.iter (fun action -> require (step 12 !state action = None) "invalid action accepted")
+    [S.Write (nat 8, nat 0, nat 1); S.Write (nat 0, nat 4096, nat 1);
+     S.Write (nat 0, nat 0, nat 256); S.Read (nat 8, nat 0)];
+  require (step 4 S.boot (S.Write (nat 0, nat 0, nat 1)) = None) "exhaustion accepted";
+  require (Option.is_some (step 12 !state (S.Write (nat 0, nat 0, nat 1)))) "private write rejected";
+  print_endline "checked 1024 model writes with boundary and exhaustion cases"
+
 type document = { fields : string array; values : string array }
 
 type guest = {
@@ -360,10 +383,98 @@ let work image path =
           with Invalid_argument message | Sys_error message -> print_endline (String.capitalize_ascii message)
     done)
 
+let exercise () =
+  let original = load "document" in
+  let g = launch "build/loader.img" original in
+  Fun.protect ~finally:(fun () -> close g) (fun () ->
+    let physicals () =
+      Array.of_list (List.map (fun line -> match String.split_on_char ' ' line with
+        | ["@map"; _; _; address; rights] -> int_of_string address, rights
+        | _ -> failwith "invalid mapping record") (request g "P"))
+    in
+    let initial_frames = physicals () in
+    require (Array.length initial_frames = 8) "mapping count";
+    for p = 0 to 3 do
+      require (initial_frames.(p) = initial_frames.(p + 4) && snd initial_frames.(p) = "0")
+        "initial physical sharing"
+    done;
+    require (query g 0 = original.values && query g 1 = original.values && query g 2 = original.values) "initial document";
+    edit g 0 3 "x";
+    require ((query g 0).(3) = "x") "document edit";
+    let copied_frames = physicals () in
+    require (fst copied_frames.(3) <> fst initial_frames.(3) && snd copied_frames.(3) = "1"
+      && copied_frames.(7) = initial_frames.(7)) "physical copy isolation";
+    peek g 0 3;
+    peek g 1 3;
+    peek g 2 3;
+    require (query g 1 = original.values && query g 2 = original.values) "snapshot isolation";
+    require (integer (S.frontier g.state) = 5) "first write copy";
+    edit g 0 3 "";
+    require ((query g 0).(3) = "") "empty field";
+    require (integer (S.frontier g.state) = 5) "repeated edit allocated";
+    require ((physicals ()).(3) = copied_frames.(3)) "private physical frame changed";
+    edit g 0 3 (String.make 255 'x');
+    require (String.length (query g 0).(3) = 255) "maximum field";
+    let rejected = try edit g 0 0 (String.make 256 'x'); false with Invalid_argument _ -> true in
+    require rejected "oversized field accepted";
+    let before = query g 0 in
+    let rejected = try ignore (request g ("E 0 0 " ^ String.make 256 'x')); false
+      with Failure message -> message = "field too long" in
+    require (rejected && query g 0 = before) "guest edit bounds";
+    for c = 0 to 1 do
+      for p = 0 to 3 do edit g c p (Printf.sprintf "snapshot %d field %d" c p) done
+    done;
+    require (integer (S.frontier g.state) = 12) "copy pool accounting";
+    let final_frames = physicals () in
+    for k = 0 to 7 do
+      for j = k + 1 to 7 do
+        require (fst final_frames.(k) <> fst final_frames.(j)) "private physical alias"
+      done
+    done;
+    edit g 1 0 "updated after pool exhausted";
+    require ((query g 1).(0) = "updated after pool exhausted") "private edit after exhaustion";
+    require (query g 2 = original.values) "original changed";
+    let values = query g 0 in
+    save "build/export.txt" {original with values};
+    require ((load "build/export.txt").values = values) "saved document differs";
+    let rejected = try edit g 2 0 "changed"; false with Invalid_argument _ -> true in
+    require rejected "original edit accepted";
+    let survivor = query g 1 in
+    discard g 0;
+    require (List.length g.available = 4 && query g 1 = survivor) "discard isolation";
+    let reset_frames = physicals () in
+    for p = 0 to 3 do require (reset_frames.(p) = initial_frames.(p)) "discard mapping restore" done;
+    pool g;
+    for cycle = 0 to 15 do
+      for p = 0 to 3 do edit g 0 p (Printf.sprintf "cycle %d field %d" cycle p) done;
+      require (g.available = [] && integer (S.frontier g.state) = 12) "recycling grew pool";
+      require (query g 1 = survivor && query g 2 = original.values) "recycling changed survivor";
+      discard g 0
+    done;
+    discard g 1;
+    require (List.length g.available = 8) "complete pool return";
+    let recycled = fst final_frames.(7) in
+    edit g 0 0 "draft now owns review frame";
+    require (fst (physicals ()).(0) = recycled) "cross snapshot physical reuse";
+    edit g 1 3 "review writes its old virtual address";
+    require (fst (physicals ()).(7) <> recycled && (query g 0).(0) = "draft now owns review frame")
+      "stale client mapping survived discard";
+    discard g 0;
+    discard g 1;
+    pool g;
+    require (query g 2 = original.values && List.length g.available = 8) "reclamation final state");
+  let g = launch "build/unsafe.img" original in
+  let detected = Fun.protect ~finally:(fun () -> close g) (fun () ->
+    try edit g 0 3 "changed"; false with Failure message -> message = "write reached a shared page") in
+  require detected "writable alias was not detected";
+  print_endline "exercised edits, exports, full pool recycling and stale mapping isolation"
+
 let () =
   Sys.catch_break true;
   try
     match Array.to_list Sys.argv with
+    | [_; "--model"] -> selftest ()
+    | [_; "--test"] -> exercise ()
     | [_] | [_; "work"] -> work "build/loader.img" "document"
     | [_; "work"; path] -> work "build/loader.img" path
     | _ -> invalid_arg "usage: check work DOCUMENT"

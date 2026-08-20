@@ -6,7 +6,7 @@ LD := aarch64-linux-gnu-ld
 CFLAGS := -std=gnu11 -O2 -g -Wall -Wextra -Werror -Wno-unused-function -ffreestanding -nostdlib -mstrict-align -I$(BOARD)/include
 QEMU := qemu-system-aarch64 -machine virt,virtualization=on -cpu cortex-a53 -m 2G -nographic -monitor none -serial stdio
 
-.PHONY: all proof work demo run clean
+.PHONY: all proof model work demo check run clean
 all: build/loader.img
 
 build:
@@ -47,10 +47,16 @@ build/check: build/split.ml check.ml Makefile
 	ocamlopt -w +a-4-42-70 -I +unix -I build -c -o build/check.cmx check.ml
 	ocamlopt -I +unix -I build unix.cmxa build/split.cmx build/check.cmx -o $@
 
+model: build/check
+	build/check --model
+
 work: all build/check
 	build/check work document
 
 demo run: work
+
+check: all build/unsafe.img model
+	build/check --test
 
 clean:
 	rm -rf build
