@@ -12,46 +12,46 @@ all: build/loader.img
 build:
 	mkdir -p build
 
-build/pager.o: pager.c split.h | build
+build/pager.o: guest/pager.c guest/split.h | build
 	$(CC) $(CFLAGS) -c $< -o $@
 
-build/alpha.o: client.c split.h | build
+build/alpha.o: guest/client.c guest/split.h | build
 	$(CC) $(CFLAGS) -DCLIENT=0 -c $< -o $@
 
-build/beta.o: client.c split.h | build
+build/beta.o: guest/client.c guest/split.h | build
 	$(CC) $(CFLAGS) -DCLIENT=1 -c $< -o $@
 
-build/unsafe.o: pager.c split.h | build
+build/unsafe.o: guest/pager.c guest/split.h | build
 	$(CC) $(CFLAGS) -DSHARED_WRITE=1 -c $< -o $@
 
 build/%.elf: build/%.o
 	$(LD) -L$(BOARD)/lib $< -lmicrokit -Tmicrokit.ld -o $@
 
-build/loader.img: build/pager.elf build/alpha.elf build/beta.elf split.system
-	MICROKIT_SDK=$(SDK) $(TOOL) --board qemu_virt_aarch64 --config debug --search-path build -o $@ -r build/report.txt split.system
+build/loader.img: build/pager.elf build/alpha.elf build/beta.elf guest/split.system
+	MICROKIT_SDK=$(SDK) $(TOOL) --board qemu_virt_aarch64 --config debug --search-path build -o $@ -r build/report.txt guest/split.system
 
-build/unsafe.img: build/unsafe.elf build/alpha.elf build/beta.elf split.system
-	sed 's/pager.elf/unsafe.elf/' split.system > build/unsafe.system
+build/unsafe.img: build/unsafe.elf build/alpha.elf build/beta.elf guest/split.system
+	sed 's/pager.elf/unsafe.elf/' guest/split.system > build/unsafe.system
 	MICROKIT_SDK=$(SDK) $(TOOL) --board qemu_virt_aarch64 --config debug --search-path build -o $@ -r build/unsafe.txt build/unsafe.system
 
 proof:
-	isabelle build -D .
+	isabelle build -D proof
 
-build/split.ml: Export.thy Reuse.thy Snapshot.thy Execution.thy Protocol.thy Isolation.thy Model.thy ROOT | build
-	isabelle build -D .
-	isabelle export -n -d . -O build/generated -x 'Split.Export:code/**' Split
+build/split.ml: proof/Export.thy proof/Reuse.thy proof/Snapshot.thy proof/Execution.thy proof/Protocol.thy proof/Isolation.thy proof/Model.thy proof/ROOT | build
+	isabelle build -D proof
+	isabelle export -n -d proof -O build/generated -x 'Split.Export:code/**' Split
 	cp build/generated/Split.Export/code/split.ocaml $@
 
-build/check: build/split.ml check.ml Makefile
+build/check: build/split.ml host/check.ml Makefile
 	ocamlopt -w -a -I build -c build/split.ml
-	ocamlopt -w +a-4-42-70 -I +unix -I build -c -o build/check.cmx check.ml
+	ocamlopt -w +a-4-42-70 -I +unix -I build -c -o build/check.cmx host/check.ml
 	ocamlopt -I +unix -I build unix.cmxa build/split.cmx build/check.cmx -o $@
 
 model: build/check
 	build/check --model
 
 work: all build/check
-	build/check work document
+	build/check work example/document
 
 demo run: work
 

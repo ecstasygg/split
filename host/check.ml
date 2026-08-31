@@ -384,7 +384,7 @@ let work image path =
     done)
 
 let exercise () =
-  let original = load "document" in
+  let original = load "example/document" in
   let g = launch "build/loader.img" original in
   Fun.protect ~finally:(fun () -> close g) (fun () ->
     let physicals () =
@@ -475,7 +475,7 @@ let () =
     match Array.to_list Sys.argv with
     | [_; "--model"] -> selftest ()
     | [_; "--test"] -> exercise ()
-    | [_] | [_; "work"] -> work "build/loader.img" "document"
+    | [_] | [_; "work"] -> work "build/loader.img" "example/document"
     | [_; "work"; path] -> work "build/loader.img" path
     | _ -> invalid_arg "usage: check work DOCUMENT"
   with
